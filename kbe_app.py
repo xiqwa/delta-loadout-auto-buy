@@ -80,6 +80,8 @@ class KazhanbeiApp(ctk.CTk):
         self.image_cache = {}
         self._last_level = None
         self._ui_token = ""
+        self.mode_var = ctk.StringVar(value="DRY")
+        self.warehouse_var = ctk.BooleanVar(value=False)
         self.stderr_file = os.path.join(BASE_DIR, "kbe_app_stderr.log")
         self._err_handle = None
         self._pulse_id = None
@@ -296,11 +298,10 @@ class KazhanbeiApp(ctk.CTk):
         ctk.CTkLabel(brand, text="DELTA FORCE LOADOUT", text_color=DIM2,
                      font=_font(10)).grid(row=1, column=1, sticky="w")
 
-        # 导航项(图标 + 文字 + 选中高亮)
+        # 导航项(文字 + 选中高亮竖条)
         self.nav_items = []
-        nav_specs = [("⌂", "开始"), ("◈", "战备价值"),
-                     ("▤", "配装方案"), ("❯", "控制台")]
-        for index, (icon, text) in enumerate(nav_specs):
+        nav_specs = ["开始", "战备价值", "配装方案", "控制台"]
+        for index, text in enumerate(nav_specs):
             item = ctk.CTkFrame(nav, fg_color="transparent", height=44,
                                 corner_radius=10, cursor="hand2")
             item.grid(row=index + 1, column=0, sticky="ew",
@@ -309,57 +310,27 @@ class KazhanbeiApp(ctk.CTk):
             item.grid_columnconfigure(1, weight=1)
             item.bind("<Button-1>",
                       lambda _e, i=index: self.show_page(i))
-            icon_lb = ctk.CTkLabel(item, text=icon, width=32,
-                                   text_color=DIM2, font=_font(15))
-            icon_lb.grid(row=0, column=0, padx=(12, 4))
+            bar = ctk.CTkFrame(item, width=3, fg_color="transparent",
+                               corner_radius=0)
+            bar.grid(row=0, column=0, sticky="ns", padx=(10, 8))
             name_lb = ctk.CTkLabel(item, text=text, text_color=DIM2,
                                    font=_font(13, "bold"), anchor="w")
             name_lb.grid(row=0, column=1, sticky="w")
-            bar = ctk.CTkFrame(item, width=3, fg_color="transparent",
-                               corner_radius=0)
-            bar.grid(row=0, column=0, sticky="ns", padx=(0, 8))
-            self.nav_items.append((item, icon_lb, name_lb, bar))
+            self.nav_items.append((item, name_lb, bar))
 
-        # 底部设置区：运行模式(集成在边栏, MAA 风格)
-        set_box = ctk.CTkFrame(nav, fg_color="transparent")
-        set_box.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 8))
-        set_box.grid_columnconfigure(0, weight=1)
-        mode_row = ctk.CTkFrame(set_box, fg_color="transparent")
-        mode_row.grid(row=0, column=0, sticky="ew", pady=(0, 6))
-        mode_row.grid_columnconfigure(0, weight=1)
-        self._label(mode_row, "运行模式", size=11, weight="bold",
-                    color=DIM2).grid(row=0, column=0, sticky="w")
-        self.mode_var = ctk.StringVar(value="DRY")
-        self.mode_seg = ctk.CTkSegmentedButton(
-            set_box, values=[label for label, _ in MODE_MAP],
-            command=self._on_mode_picked, corner_radius=6,
-            fg_color=PANEL2, selected_color=ACCENT,
-            selected_hover_color=ACCENT_D, text_color=TEXT,
-            font=_font(11, "bold"), height=30)
-        self.mode_seg.grid(row=1, column=0, sticky="ew")
-        self.mode_hint = self._label(set_box, "真实导航，购买前停止",
-                                     size=10, color=WARN)
-        self.mode_hint.grid(row=2, column=0, sticky="ew", pady=(4, 0))
-
-        # 胸挂背包使用仓库的开关
-        wh_row = ctk.CTkFrame(set_box, fg_color="transparent")
-        wh_row.grid(row=3, column=0, sticky="ew", pady=(10, 0))
-        wh_row.grid_columnconfigure(0, weight=1)
-        self._label(wh_row, "胸挂背包用仓库的", size=11, weight="bold",
-                    color=DIM2).grid(row=0, column=0, sticky="w")
-        self.warehouse_var = ctk.BooleanVar(value=False)
-        self.warehouse_switch = ctk.CTkSwitch(
-            wh_row, text="", variable=self.warehouse_var, width=44,
-            progress_color=ACCENT, fg_color=PANEL3,
-            button_color=TEXT, button_hover_color=DIM)
-        self.warehouse_switch.grid(row=0, column=1, sticky="e")
-
-        # 底部状态徽章
+        # 底部:设置小按钮(齿轮)+ 状态徽章
+        bottom = ctk.CTkFrame(nav, fg_color="transparent")
+        bottom.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 14))
+        bottom.grid_columnconfigure(0, weight=1)
         self.status_badge = ctk.CTkLabel(
-            nav, text="● 空闲", fg_color=PANEL2, text_color=DIM2,
-            corner_radius=10, font=_font(11, "bold"), height=32)
-        self.status_badge.grid(row=4, column=0, sticky="ew",
-                               padx=12, pady=(0, 14))
+            bottom, text="● 空闲", fg_color=PANEL2, text_color=DIM2,
+            corner_radius=8, font=_font(11, "bold"), height=32)
+        self.status_badge.grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        btn_settings = ctk.CTkButton(
+            bottom, text="⚙", width=40, height=32, corner_radius=8,
+            fg_color=PANEL2, hover_color=PANEL3, text_color=DIM,
+            font=_font(15), command=self._open_settings)
+        btn_settings.grid(row=0, column=1)
 
     def _page_header(self, parent, eyebrow, title, subtitle, back=None):
         header = ctk.CTkFrame(parent, fg_color="transparent")
@@ -380,10 +351,9 @@ class KazhanbeiApp(ctk.CTk):
     def show_page(self, index):
         for i, page in enumerate(self.pages):
             page.grid() if i == index else page.grid_remove()
-        for i, (item, icon_lb, name_lb, bar) in enumerate(self.nav_items):
+        for i, (item, name_lb, bar) in enumerate(self.nav_items):
             active = i == index
             item.configure(fg_color=PANEL3 if active else "transparent")
-            icon_lb.configure(text_color=TEXT if active else DIM2)
             name_lb.configure(text_color=TEXT if active else DIM2)
             bar.configure(fg_color=ACCENT if active else "transparent")
 
@@ -469,6 +439,60 @@ class KazhanbeiApp(ctk.CTk):
         self._save_state()
         self.token_status.configure(text="✓ 已保存", text_color=OK)
         self._append(f"[GUI] API Token 已保存（{len(token)} 位）\n", "ok")
+
+    # ---------- 设置弹窗(左下角齿轮) ----------
+    def _open_settings(self):
+        win = ctk.CTkToplevel(self)
+        win.title("设置")
+        win.geometry("380x330")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        win.configure(fg_color=BG)
+        win.attributes("-topmost", True)
+
+        body = ctk.CTkFrame(win, fg_color="transparent")
+        body.pack(fill="both", expand=True, padx=20, pady=18)
+
+        # 运行模式
+        self._label(body, "运行模式", size=14, weight="bold",
+                    color=TEXT).pack(anchor="w", pady=(0, 6))
+        self.mode_seg = ctk.CTkSegmentedButton(
+            body, values=[label for label, _ in MODE_MAP],
+            command=self._on_mode_picked, corner_radius=10,
+            fg_color=PANEL2, selected_color=ACCENT,
+            selected_hover_color=GRADIENT, text_color=TEXT,
+            font=_font(13, "bold"), height=36)
+        self.mode_seg.pack(fill="x", pady=(0, 4))
+        self.mode_seg.set(next(name for name, key in MODE_MAP
+                               if key == self.mode_var.get()))
+        self.mode_hint = self._label(body, "真实导航，购买前停止",
+                                     size=11, color=WARN)
+        self.mode_hint.pack(anchor="w", pady=(0, 14))
+
+        # 胸挂背包开关
+        wh = ctk.CTkFrame(body, fg_color=PANEL2, corner_radius=10,
+                          border_width=1, border_color=BORDER)
+        wh.pack(fill="x", pady=(0, 14))
+        wh.grid_columnconfigure(0, weight=1)
+        self._label(wh, "胸挂背包用仓库的", size=13, weight="bold",
+                    color=TEXT).grid(row=0, column=0, sticky="w",
+                                     padx=16, pady=14)
+        self.warehouse_switch = ctk.CTkSwitch(
+            wh, text="", variable=self.warehouse_var, width=44,
+            progress_color=ACCENT, fg_color=PANEL3,
+            button_color=TEXT, button_hover_color=DIM)
+        self.warehouse_switch.grid(row=0, column=1, padx=16)
+
+        # 说明
+        self._label(body, "提示：滚动速度、重试次数等高级参数\n"
+                    "可通过环境变量调整（见 README）",
+                    size=11, color=DIM2).pack(anchor="w", pady=(0, 10))
+
+        def on_close():
+            self._save_state()
+            win.destroy()
+        win.protocol("WM_DELETE_WINDOW", on_close)
 
     # ---------- 第 2 页 ----------
     def _build_level_page(self):
@@ -581,7 +605,7 @@ class KazhanbeiApp(ctk.CTk):
                     color=TEXT).grid(row=0, column=0, sticky="w",
                                      padx=18, pady=(16, 8))
         mode_hint_line = self._label(
-            controls, "运行模式在左侧边栏底部选择", size=12, color=DIM2)
+            controls, "运行模式在左下角 ⚙ 设置中调整", size=12, color=DIM2)
         mode_hint_line.grid(row=1, column=0, sticky="ew",
                             padx=18, pady=(0, 12))
         actions = ctk.CTkFrame(controls, fg_color="transparent")
@@ -825,7 +849,8 @@ class KazhanbeiApp(ctk.CTk):
                     categories.append(category)
             self.after(0, lambda: self._apply_groups(categories, details))
         except Exception as exc:
-            self.after(0, lambda: self._apply_groups([], {}, str(exc)))
+            err_msg = str(exc)
+            self.after(0, lambda m=err_msg: self._apply_groups([], {}, m))
 
     def _apply_groups(self, categories, details, err=None):
         self.categories = categories
@@ -1095,10 +1120,12 @@ class KazhanbeiApp(ctk.CTk):
                  "DRY": ("真实导航，购买前停止", WARN),
                  "REAL": ("会消耗游戏币，启动时需确认", DANGER)}
         text, color = hints[mode]
-        self.mode_hint.configure(text=text, text_color=color)
-        self.foot_mode.configure(
-            text={"PREVIEW": "预览", "DRY": "试跑",
-                  "REAL": "真实购买"}[mode], text_color=color)
+        if getattr(self, "mode_hint", None) is not None:
+            self.mode_hint.configure(text=text, text_color=color)
+        if getattr(self, "foot_mode", None) is not None:
+            self.foot_mode.configure(
+                text={"PREVIEW": "预览", "DRY": "试跑",
+                      "REAL": "真实购买"}[mode], text_color=color)
         self._save_state()
 
     # ---------- 状态 ----------
@@ -1112,9 +1139,10 @@ class KazhanbeiApp(ctk.CTk):
             mode = state.get("mode")
             if mode:
                 self.mode_var.set(mode)
-                label = next((name for name, key in MODE_MAP
-                              if key == mode), "试跑")
-                self.mode_seg.set(label)
+                if getattr(self, "mode_seg", None) is not None:
+                    label = next((name for name, key in MODE_MAP
+                                  if key == mode), "试跑")
+                    self.mode_seg.set(label)
             if state.get("warehouse"):
                 self.warehouse_var.set(True)
             if state.get("token"):

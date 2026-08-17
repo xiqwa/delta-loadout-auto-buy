@@ -6,6 +6,7 @@ import sys
 import threading
 import subprocess
 import ctypes
+import webbrowser
 from io import BytesIO
 from tkinter import messagebox
 import customtkinter as ctk
@@ -78,6 +79,7 @@ class KazhanbeiApp(ctk.CTk):
         self.plans_per_page = 4
         self.image_cache = {}
         self._last_level = None
+        self._ui_token = ""
         self.stderr_file = os.path.join(BASE_DIR, "kbe_app_stderr.log")
         self._err_handle = None
         self._pulse_id = None
@@ -265,6 +267,7 @@ class KazhanbeiApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
         self._build_nav()
         self.pages = []
+        self._build_start_page()
         self._build_level_page()
         self._build_plan_page()
         self._build_console_page()
@@ -295,7 +298,8 @@ class KazhanbeiApp(ctk.CTk):
 
         # 导航项(图标 + 文字 + 选中高亮)
         self.nav_items = []
-        nav_specs = [("◈", "战备价值"), ("▤", "配装方案"), ("❯", "控制台")]
+        nav_specs = [("⌂", "开始"), ("◈", "战备价值"),
+                     ("▤", "配装方案"), ("❯", "控制台")]
         for index, (icon, text) in enumerate(nav_specs):
             item = ctk.CTkFrame(nav, fg_color="transparent", height=44,
                                 corner_radius=10, cursor="hand2")
@@ -383,7 +387,90 @@ class KazhanbeiApp(ctk.CTk):
             name_lb.configure(text_color=TEXT if active else DIM2)
             bar.configure(fg_color=ACCENT if active else "transparent")
 
-    # ---------- 第 1 页 ----------
+    # ---------- 第 1 页：开始 ----------
+    API_DOC_URL = "https://orzice.com/v/zb_ssV4"
+
+    def _build_start_page(self):
+        page = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
+        page.grid(row=0, column=1, sticky="nsew")
+        page.grid_columnconfigure(0, weight=1)
+        self._page_header(page, "WELCOME", "卡战备自动配装",
+                          "三角洲行动 · 卡战备自动配装购买工具")
+
+        body = ctk.CTkFrame(page, fg_color="transparent")
+        body.grid(row=1, column=0, sticky="nsew", padx=56, pady=(8, 30))
+        body.grid_columnconfigure(0, weight=1)
+
+        # 使用步骤卡片
+        steps_card = ctk.CTkFrame(body, fg_color=PANEL, corner_radius=14,
+                                  border_width=1, border_color=BORDER)
+        steps_card.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        steps_card.grid_columnconfigure(0, weight=1)
+        self._label(steps_card, "使用步骤", size=17, weight="bold",
+                    color=TEXT).grid(row=0, column=0, sticky="w",
+                                     padx=22, pady=(18, 8))
+        steps = [
+            ("1", "获取 API Token", "打开鼠鼠卡战备 V4 文档，购买/申请 API 权限"),
+            ("2", "填入 Token", "粘贴到下方输入框并保存（只保存在本机）"),
+            ("3", "开始配装", "左侧选择战备价值 → 配装方案 → 控制台运行"),
+        ]
+        for i, (num, title, desc) in enumerate(steps):
+            row = ctk.CTkFrame(steps_card, fg_color="transparent")
+            row.grid(row=i + 1, column=0, sticky="ew",
+                     padx=22, pady=(4, 10))
+            row.grid_columnconfigure(1, weight=1)
+            badge = ctk.CTkLabel(row, text=num, width=30, height=30,
+                                 fg_color=ACCENT, text_color="#FFFFFF",
+                                 corner_radius=15, font=_font(13, "bold"))
+            badge.grid(row=0, column=0, padx=(0, 14))
+            self._label(row, title, size=15, weight="bold",
+                        color=TEXT).grid(row=0, column=1, sticky="w")
+            self._label(row, desc, size=12, color=DIM).grid(
+                row=1, column=1, sticky="w")
+
+        # API 文档 + Token 输入卡片
+        token_card = ctk.CTkFrame(body, fg_color=PANEL, corner_radius=14,
+                                  border_width=1, border_color=BORDER)
+        token_card.grid(row=1, column=0, sticky="ew")
+        token_card.grid_columnconfigure(0, weight=1)
+        self._label(token_card, "API Token", size=17, weight="bold",
+                    color=TEXT).grid(row=0, column=0, columnspan=2,
+                                     sticky="w", padx=22, pady=(18, 6))
+        self._label(token_card, "Token 用于调用鼠鼠卡战备 V4 接口获取配装方案，"
+                    "请到 API 文档自行购买获取。",
+                    size=12, color=DIM).grid(row=1, column=0, columnspan=2,
+                                             sticky="w", padx=22, pady=(0, 10))
+        self.token_entry = ctk.CTkEntry(
+            token_card, height=40, corner_radius=10, fg_color=PANEL2,
+            border_color=BORDER, text_color=TEXT, placeholder_text="粘贴你的 Token...",
+            font=_font(13))
+        self.token_entry.grid(row=2, column=0, sticky="ew",
+                              padx=(22, 10), pady=(0, 6))
+        btn_doc = self._button(token_card, "打开 API 文档",
+                               lambda: webbrowser.open(self.API_DOC_URL),
+                               height=40, font=_font(12, "bold"))
+        btn_doc.grid(row=2, column=1, sticky="e", padx=(0, 22), pady=(0, 6))
+        btn_save = self._button(token_card, "保存 Token",
+                                self._save_token, primary=True,
+                                height=40, font=_font(12, "bold"))
+        btn_save.grid(row=3, column=0, sticky="w", padx=22, pady=(0, 18))
+        self.token_status = self._label(token_card, "", size=12, color=OK)
+        self.token_status.grid(row=3, column=1, sticky="e", padx=22,
+                               pady=(0, 18))
+
+        self.pages.append(page)
+
+    def _save_token(self):
+        token = self.token_entry.get().strip()
+        if len(token) < 10:
+            self.token_status.configure(text="Token 太短，请检查", text_color=DANGER)
+            return
+        self._ui_token = token
+        self._save_state()
+        self.token_status.configure(text="✓ 已保存", text_color=OK)
+        self._append(f"[GUI] API Token 已保存（{len(token)} 位）\n", "ok")
+
+    # ---------- 第 2 页 ----------
     def _build_level_page(self):
         page = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         page.grid(row=0, column=1, sticky="nsew")
@@ -460,7 +547,7 @@ class KazhanbeiApp(ctk.CTk):
         self.pages.append(page)
 
     def _back_to_level(self):
-        self.show_page(0)
+        self.show_page(1)
 
     # ---------- 第 3 页 ----------
     def _build_console_page(self):
@@ -549,7 +636,7 @@ class KazhanbeiApp(ctk.CTk):
         self.pages.append(page)
 
     def _back_to_plans(self):
-        self.show_page(1)
+        self.show_page(2)
 
     # ---------- 页面内容 ----------
     def _clear_plans(self):
@@ -689,7 +776,7 @@ class KazhanbeiApp(ctk.CTk):
         self._paint_levels()
         if self._last_level == level and self.groups:
             if advance:
-                self.show_page(1)
+                self.show_page(2)
             return
         self.groups = []
         self.group_details = {}
@@ -700,7 +787,7 @@ class KazhanbeiApp(ctk.CTk):
         self._set_status("加载中", WARN)
         self.after(80, self._load_groups)
         if advance:
-            self.show_page(1)
+            self.show_page(2)
 
     def _paint_levels(self):
         selected = self.lv_var.get()
@@ -763,7 +850,7 @@ class KazhanbeiApp(ctk.CTk):
         self._show_group_summary(key)
         for candidate, card in self.plan_buttons:
             card.configure(border_color=ACCENT if candidate == key else BORDER)
-        self.show_page(2)
+        self.show_page(3)
 
     def _show_group_summary(self, key):
         plan = self.group_details.get(key)
@@ -934,6 +1021,8 @@ class KazhanbeiApp(ctk.CTk):
             label = "真实购买"
         if self.warehouse_var.get():
             env["USE_WAREHOUSE_RIG_BAG"] = "1"
+        if self._ui_token:
+            env["KZB_TOKEN"] = self._ui_token
         self.tail_pos = os.path.getsize(LOG_FILE) if os.path.exists(LOG_FILE) else 0
         # ⚠️ 启动前校验 TOKEN：残缺 token 会导致整轮 API 白跑，先拦下。
         if not self._token():
@@ -1028,6 +1117,11 @@ class KazhanbeiApp(ctk.CTk):
                 self.mode_seg.set(label)
             if state.get("warehouse"):
                 self.warehouse_var.set(True)
+            if state.get("token"):
+                self._ui_token = state["token"]
+                self.token_entry.delete(0, "end")
+                self.token_entry.insert(0, state["token"])
+                self.token_status.configure(text="✓ 已保存", text_color=OK)
         except (OSError, ValueError, TypeError):
             pass
         self._paint_levels()
@@ -1041,21 +1135,20 @@ class KazhanbeiApp(ctk.CTk):
             with open(UI_STATE_FILE, "w", encoding="utf-8") as f:
                 json.dump({"level": self.lv_var.get(),
                            "mode": self.mode_var.get(),
-                           "warehouse": self.warehouse_var.get()},
+                           "warehouse": self.warehouse_var.get(),
+                           "token": self._ui_token},
                           f, ensure_ascii=False, indent=2)
         except (OSError, ValueError):
             pass
 
     def _token(self):
-        try:
-            import re
-            with open(SCRIPT, encoding="utf-8") as f:
-                match = re.search(r'TOKEN\s*=\s*"([^"]+)"', f.read())
-            if match and len(match.group(1)) >= 32:
-                return match.group(1)
-        except Exception:
-            pass
-        self._append("[GUI] ⚠️ 无法从 maa_kazhanbei.py 提取完整 TOKEN\n",
+        """优先用开始页保存的 token，其次环境变量 KZB_TOKEN。"""
+        if self._ui_token and len(self._ui_token) >= 10:
+            return self._ui_token
+        env_token = os.environ.get("KZB_TOKEN", "")
+        if len(env_token) >= 10:
+            return env_token
+        self._append("[GUI] ⚠️ 未配置 API Token：请到「开始」页填入并保存\n",
                      "warn")
         return None
 

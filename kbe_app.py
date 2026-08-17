@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""卡战备自动配装 - 大厂风格三步向导界面。"""
+"""卡战备自动配装 - 三步向导界面。"""
 import json
 import os
 import sys
@@ -34,7 +34,7 @@ LV_DESC = {0: "11W 机密", 1: "18W 机密", 2: "55W 绝密巴克什",
            3: "60W 绝密航天", 5: "78W 绝密监狱"}
 MODE_MAP = [("预览", "PREVIEW"), ("试跑", "DRY"), ("购买", "REAL")]
 
-# ============ Orzice 鼠鼠卡战备 V4 风格(紫蓝渐变 + 深色卡片) ============
+# ============ 界面配色(紫蓝渐变 + 深色卡片) ============
 BG = "#16181D"          # 主背景(深蓝黑)
 PANEL = "#1F2229"       # 导航/面板
 PANEL2 = "#262A33"      # 卡片
@@ -276,7 +276,7 @@ class KazhanbeiApp(ctk.CTk):
         self.show_page(0)
 
     def _build_nav(self):
-        """MAA 风格左侧导航栏：品牌 + 导航项 + 底部状态。"""
+        """左侧导航栏：品牌 + 导航项 + 底部状态。"""
         nav = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=0,
                            width=200, border_width=0)
         nav.grid(row=0, column=0, sticky="nsw")

@@ -1,0 +1,13 @@
+{
+  "version": {},
+  "tasks": {
+    "测试OCR": {
+      "recognition": "Ocr",
+      "expected": [
+        "黑鹰坠落"
+      ],
+      "timeout": 20000,
+      "action": "DoNothing"
+    }
+  }
+}

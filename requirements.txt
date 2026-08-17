@@ -1,0 +1,10 @@
+# 卡战备自动配装依赖
+customtkinter>=5.2.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pywin32>=306
+requests>=2.31.0
+# MaaFramework Python 包(与 maa_win_pkg 配套)
+maa>=2.0.0
+# 备选 OCR 引擎(默认 WinRT, 无需安装)
+# easyocr>=1.7.0

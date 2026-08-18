@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 三角洲行动 · 自动配装（固定坐标版）v1.0
-- 从配装 API 实时拉取方案
+- 从 orzice.com 拉取配装方案
 - 固定坐标点击军需处/武器分类/滚动条/购买/返回
 - easyocr 识别装备列表
 用法:
@@ -45,7 +45,7 @@ except Exception:
 BASE_DIR = r"C:\dflppeizhuang"
 CONFIG_FILE = os.path.join(BASE_DIR, "maa_config.json")
 COORD_FILE = os.path.join(BASE_DIR, "config_abs.json")
-TOKEN = os.environ.get("KZB_TOKEN", "")  # ⚠️ 填入你自己的 token 或设置环境变量 KZB_TOKEN
+TOKEN = "KZB_TOKEN"
 LOADOUT_URL = "https://orzice.com/workApi/v1/sjz_api/jzv4_zb"
 MAX_PRICE = 600000
 GAME_TITLE = "三角洲行动"

@@ -37,7 +37,7 @@ from maa.tasker import Tasker
 
 # ==================== 配置 ====================
 BASE_DIR = r"C:\dflppeizhuang"
-TOKEN = os.environ.get("KZB_TOKEN", "")  # ⚠️ 填入你自己的 token 或设置环境变量 KZB_TOKEN
+TOKEN = "KZB_TOKEN"  # 完整密钥
 LOADOUT_URL = "https://orzice.com/workApi/v1/sjz_api/jzv4_zb"
 LV_MAP = {0: "11W机密", 1: "18W机密", 2: "55W绝密巴克什", 3: "60W绝密航天", 5: "78W绝密监狱"}
 OCR_MODEL = pathlib.Path(r"C:\dflppeizhuang\model\ocr")
@@ -549,12 +549,16 @@ def pick_group(data, gname=None):
         for g in data:
             if gname in g.get("name", ""):
                 return g
+    # 非交互环境(GUI 子进程 stdin 非 tty): 匹配失败直接默认第一组, 绝不等待输入
+    if not sys.stdin.isatty():
+        print(f"[警告] 方案组「{gname}」未匹配，默认选择第 0 组")
+        return data[0] if data else None
     print("\n方案组：")
     for i, g in enumerate(data):
         print(f"  [{i}] {g.get('name')} | {g.get('desc')} | {len(g.get('list',[]))}方案")
     try:
         choice = int(input("选择序号(回车0): ").strip() or "0")
-    except ValueError:
+    except (ValueError, EOFError):
         choice = 0
     return data[choice] if 0 <= choice < len(data) else data[0]
 
@@ -1145,8 +1149,72 @@ def _click_purchase_entry_text(runner):
     return pos
 
 
-def select_wear_level(runner, wanted=DEFAULT_WEAR_LEVEL):
-    """OCR 选择档位；默认几乎全新，不存在时只回退到更低的破损档。"""
+def _read_purchase_price(runner):
+    """读取弹窗下方蓝色购买按钮上的价格数字，返回 int 或 None(读取失败)。
+
+    先用 HSV 过滤定位蓝色横向按钮，再只对该区域 OCR，避免把档位行价格
+    当成购买价；定位不到蓝色按钮时回退原固定区域 OCR。校验失败不阻塞购买。
+    """
+    img = runner.screencap_now()
+    h, w = img.shape[:2]
+    region = (int(w * 0.38), int(h * 0.58), int(w * 0.40), int(h * 0.26))
+    button_regions = []
+
+    try:
+        low = tuple(int(v) for v in
+                    os.environ.get("PURCHASE_BLUE_LOW", "90,60,60").split(","))
+        high = tuple(int(v) for v in
+                     os.environ.get("PURCHASE_BLUE_HIGH", "130,255,255").split(","))
+        search = (int(w * 0.34), int(h * 0.54), int(w * 0.48), int(h * 0.34))
+        sx, sy, sw, sh = search
+        sx1, sy1 = min(w, sx + sw), min(h, sy + sh)
+        hsv = cv2.cvtColor(img[sy:sy1, sx:sx1], cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, np.array(low, dtype=np.uint8),
+                           np.array(high, dtype=np.uint8))
+        mask = cv2.morphologyEx(
+            mask, cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_RECT, (15, 5)))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        candidates = []
+        for contour in contours:
+            bx, by, bw, bh = cv2.boundingRect(contour)
+            if (bw < w * 0.04 or bh < h * 0.008 or bh > h * 0.12
+                    or bw / max(1, bh) < 2.0):
+                continue
+            candidates.append((bw * bh,
+                               (sx + bx, sy + by,
+                                sx + bx + bw, sy + by + bh)))
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        button_regions = [box for _, box in candidates[:8]]
+    except Exception:
+        button_regions = []
+
+    if not button_regions:
+        button_regions = [region]
+
+    for bbox in button_regions:
+        try:
+            # 直接用按钮区域 OCR, pad 扩展会导致识别率下降
+            texts = ae.ocr_region(img, bbox)
+        except Exception:
+            continue
+        for text, _, _ in texts:
+            # OCR 可能返回全角逗号(1，948), 统一转半角再解析
+            clean = re.sub(r"\s+", "", text).replace("，", ",")
+            nums = re.findall(r"\d{1,3}(?:,\d{3})+|\d{2,9}", clean)
+            if nums:
+                return max(int(num.replace(",", "")) for num in nums)
+    return None
+
+
+def select_wear_level(runner, wanted=DEFAULT_WEAR_LEVEL, api_price=None):
+    """OCR 选择档位；默认几乎全新，不存在时只回退到更低的破损档。
+
+    api_price 非空时做软校验：选档后读购买按钮价格，
+    不一致则再点一次档位（最多 3 次）；读不到价格或多次不一致
+    不阻塞购买，按当前档位继续 —— 保证买得了。
+    """
     img = runner.screencap_now()
     levels = _ocr_wear_levels(img)
     fallback = {
@@ -1160,10 +1228,25 @@ def select_wear_level(runner, wanted=DEFAULT_WEAR_LEVEL):
         return None
     text, bbox = levels[chosen]
     pos = _center(bbox)
-    log(f"  [选档] 目标={wanted}｜实际={chosen}｜OCR「{text}」box={bbox}｜点击文字中心window{pos}")
-    runner.click_pos(*pos, precise=True)
-    # 等弹窗关闭动画（0.25s 偏短，选错行会直接买错档位）
-    time.sleep(0.45)
+
+    for attempt in range(3):
+        log(f"  [选档] 目标={wanted}｜实际={chosen}｜OCR「{text}」box={bbox}｜点击window{pos}（第{attempt + 1}次）")
+        runner.click_pos(*pos, precise=True)
+        # 等弹窗关闭动画（0.25s 偏短，选错行会直接买错档位）
+        time.sleep(0.45)
+        # 软校验：能确认价格一致就确认；确认不了不阻塞购买
+        if api_price:
+            shown = _read_purchase_price(runner)
+            if shown is None:
+                log("  [价格校验] 未读到价格，按当前档位继续购买")
+                return chosen
+            if abs(shown - api_price) <= max(3, int(api_price * 0.01)):
+                log(f"  [价格校验] ✓ 游戏价 {shown} == API价 {api_price}，档位确认")
+                return chosen
+            log(f"  [价格校验] ✗ 游戏价 {shown} != API价 {api_price}（第{attempt + 1}次），再点一次档位")
+            continue
+        return chosen
+    log(f"  [选档] 多次价格不一致，按当前档位 {chosen} 继续购买")
     return chosen
 
 
@@ -1301,7 +1384,7 @@ def final_action(runner, item):
     if not open_wear_selection(runner, clean_name, api_price):
         log(f"  [购买链失败] {clean_name}｜小方框或档位弹窗识别失败")
         return False
-    chosen = select_wear_level(runner, wanted)
+    chosen = select_wear_level(runner, wanted, api_price)
     if not chosen:
         log(f"  [购买链失败] {clean_name}｜无法选择档位")
         return False

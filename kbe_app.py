@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""卡战备自动配装 - 三步向导界面。"""
+"""卡战备自动配装 - 大厂风格三步向导界面。"""
 import json
 import os
 import sys
@@ -12,6 +12,8 @@ from tkinter import messagebox
 import customtkinter as ctk
 from PIL import Image
 import api_client
+
+_IMG_SEM = threading.BoundedSemaphore(2)  # 图片下载并发上限
 
 
 __version__ = "4.5.0"
@@ -34,7 +36,7 @@ LV_DESC = {0: "11W 机密", 1: "18W 机密", 2: "55W 绝密巴克什",
            3: "60W 绝密航天", 5: "78W 绝密监狱"}
 MODE_MAP = [("预览", "PREVIEW"), ("试跑", "DRY"), ("购买", "REAL")]
 
-# ============ 界面配色(紫蓝渐变 + 深色卡片) ============
+# ============ Orzice 鼠鼠卡战备 V4 风格(紫蓝渐变 + 深色卡片) ============
 BG = "#16181D"          # 主背景(深蓝黑)
 PANEL = "#1F2229"       # 导航/面板
 PANEL2 = "#262A33"      # 卡片
@@ -276,12 +278,12 @@ class KazhanbeiApp(ctk.CTk):
         self.show_page(0)
 
     def _build_nav(self):
-        """左侧导航栏：品牌 + 导航项 + 底部状态。"""
+        """左侧导航栏：品牌 + 导航项 + 底部设置/状态。"""
         nav = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=0,
                            width=200, border_width=0)
-        nav.grid(row=0, column=0, sticky="nsw")
+        nav.grid(row=0, column=0, sticky="nsew")
         nav.grid_propagate(False)
-        nav.grid_rowconfigure(2, weight=1)
+        nav.grid_rowconfigure(5, weight=1)
 
         # 品牌区
         brand = ctk.CTkFrame(nav, fg_color="transparent")
@@ -298,39 +300,54 @@ class KazhanbeiApp(ctk.CTk):
         ctk.CTkLabel(brand, text="DELTA FORCE LOADOUT", text_color=DIM2,
                      font=_font(10)).grid(row=1, column=1, sticky="w")
 
-        # 导航项(文字 + 选中高亮竖条)
+        # 导航项(标签直接放导航栏, 选中高亮背景)
         self.nav_items = []
         nav_specs = ["开始", "战备价值", "配装方案", "控制台"]
         for index, text in enumerate(nav_specs):
-            item = ctk.CTkFrame(nav, fg_color="transparent", height=44,
-                                corner_radius=10, cursor="hand2")
-            item.grid(row=index + 1, column=0, sticky="ew",
-                      padx=10, pady=3)
-            item.grid_propagate(False)
-            item.grid_columnconfigure(1, weight=1)
-            item.bind("<Button-1>",
-                      lambda _e, i=index: self.show_page(i))
-            bar = ctk.CTkFrame(item, width=3, fg_color="transparent",
-                               corner_radius=0)
-            bar.grid(row=0, column=0, sticky="ns", padx=(10, 8))
-            name_lb = ctk.CTkLabel(item, text=text, text_color=DIM2,
-                                   font=_font(13, "bold"), anchor="w")
-            name_lb.grid(row=0, column=1, sticky="w")
-            self.nav_items.append((item, name_lb, bar))
+            lb = ctk.CTkLabel(nav, text=text, text_color=DIM, anchor="w",
+                              fg_color="transparent", height=38,
+                              corner_radius=10, cursor="hand2",
+                              font=_font(13, "bold"))
+            lb.grid(row=index + 1, column=0, sticky="ew",
+                    padx=10, pady=3)
+            lb.bind("<Button-1>",
+                    lambda _e, i=index: self.show_page(i))
+            self.nav_items.append(lb)
 
-        # 底部:设置小按钮(齿轮)+ 状态徽章
-        bottom = ctk.CTkFrame(nav, fg_color="transparent")
-        bottom.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 14))
-        bottom.grid_columnconfigure(0, weight=1)
+        # 底部:设置内嵌(运行模式 + 胸挂背包开关)+ 状态徽章
+        set_box = ctk.CTkFrame(nav, fg_color="transparent")
+        set_box.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 8))
+        set_box.grid_columnconfigure(0, weight=1)
+        self._label(set_box, "运行模式", size=11, weight="bold",
+                    color=DIM2).grid(row=0, column=0, sticky="w",
+                                     pady=(0, 4))
+        self.mode_seg = ctk.CTkSegmentedButton(
+            set_box, values=[label for label, _ in MODE_MAP],
+            command=self._on_mode_picked, corner_radius=8,
+            fg_color=PANEL2, selected_color=ACCENT,
+            selected_hover_color=GRADIENT, text_color=TEXT,
+            font=_font(11, "bold"), height=30)
+        self.mode_seg.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        self.mode_hint = self._label(set_box, "真实导航，购买前停止",
+                                     size=10, color=WARN)
+        self.mode_hint.grid(row=2, column=0, sticky="ew", pady=(0, 10))
+        wh_row = ctk.CTkFrame(set_box, fg_color="transparent")
+        wh_row.grid(row=3, column=0, sticky="ew", pady=(0, 10))
+        wh_row.grid_columnconfigure(0, weight=1)
+        self._label(wh_row, "胸挂背包用仓库的", size=11, weight="bold",
+                    color=DIM2).grid(row=0, column=0, sticky="w")
+        self.warehouse_switch = ctk.CTkSwitch(
+            wh_row, text="", variable=self.warehouse_var, width=42,
+            progress_color=ACCENT, fg_color=PANEL3,
+            button_color=TEXT, button_hover_color=DIM)
+        self.warehouse_switch.grid(row=0, column=1, sticky="e")
+
+        # 状态徽章
         self.status_badge = ctk.CTkLabel(
-            bottom, text="● 空闲", fg_color=PANEL2, text_color=DIM2,
+            nav, text="● 空闲", fg_color=PANEL2, text_color=DIM2,
             corner_radius=8, font=_font(11, "bold"), height=32)
-        self.status_badge.grid(row=0, column=0, sticky="ew", padx=(0, 8))
-        btn_settings = ctk.CTkButton(
-            bottom, text="⚙", width=40, height=32, corner_radius=8,
-            fg_color=PANEL2, hover_color=PANEL3, text_color=DIM,
-            font=_font(15), command=self._open_settings)
-        btn_settings.grid(row=0, column=1)
+        self.status_badge.grid(row=6, column=0, sticky="ew",
+                               padx=12, pady=(0, 14))
 
     def _page_header(self, parent, eyebrow, title, subtitle, back=None):
         header = ctk.CTkFrame(parent, fg_color="transparent")
@@ -351,11 +368,10 @@ class KazhanbeiApp(ctk.CTk):
     def show_page(self, index):
         for i, page in enumerate(self.pages):
             page.grid() if i == index else page.grid_remove()
-        for i, (item, name_lb, bar) in enumerate(self.nav_items):
+        for i, lb in enumerate(self.nav_items):
             active = i == index
-            item.configure(fg_color=PANEL3 if active else "transparent")
-            name_lb.configure(text_color=TEXT if active else DIM2)
-            bar.configure(fg_color=ACCENT if active else "transparent")
+            lb.configure(fg_color=PANEL3 if active else "transparent",
+                         text_color=TEXT if active else DIM)
 
     # ---------- 第 1 页：开始 ----------
     API_DOC_URL = "https://orzice.com/v/zb_ssV4"
@@ -364,69 +380,101 @@ class KazhanbeiApp(ctk.CTk):
         page = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
         page.grid(row=0, column=1, sticky="nsew")
         page.grid_columnconfigure(0, weight=1)
-        self._page_header(page, "WELCOME", "卡战备自动配装",
-                          "三角洲行动 · 卡战备自动配装购买工具")
+        page.grid_rowconfigure(1, weight=1)
 
         body = ctk.CTkFrame(page, fg_color="transparent")
-        body.grid(row=1, column=0, sticky="nsew", padx=56, pady=(8, 30))
+        body.grid(row=1, column=0, sticky="nsew", padx=56, pady=(30, 30))
         body.grid_columnconfigure(0, weight=1)
 
-        # 使用步骤卡片
-        steps_card = ctk.CTkFrame(body, fg_color=PANEL, corner_radius=14,
-                                  border_width=1, border_color=BORDER)
-        steps_card.grid(row=0, column=0, sticky="ew", pady=(0, 14))
-        steps_card.grid_columnconfigure(0, weight=1)
-        self._label(steps_card, "使用步骤", size=17, weight="bold",
-                    color=TEXT).grid(row=0, column=0, sticky="w",
-                                     padx=22, pady=(18, 8))
-        steps = [
-            ("1", "获取 API Token", "打开鼠鼠卡战备 V4 文档，购买/申请 API 权限"),
-            ("2", "填入 Token", "粘贴到下方输入框并保存（只保存在本机）"),
-            ("3", "开始配装", "左侧选择战备价值 → 配装方案 → 控制台运行"),
-        ]
-        for i, (num, title, desc) in enumerate(steps):
-            row = ctk.CTkFrame(steps_card, fg_color="transparent")
-            row.grid(row=i + 1, column=0, sticky="ew",
-                     padx=22, pady=(4, 10))
-            row.grid_columnconfigure(1, weight=1)
-            badge = ctk.CTkLabel(row, text=num, width=30, height=30,
-                                 fg_color=ACCENT, text_color="#FFFFFF",
-                                 corner_radius=15, font=_font(13, "bold"))
-            badge.grid(row=0, column=0, padx=(0, 14))
-            self._label(row, title, size=15, weight="bold",
-                        color=TEXT).grid(row=0, column=1, sticky="w")
-            self._label(row, desc, size=12, color=DIM).grid(
-                row=1, column=1, sticky="w")
+        # 品牌横幅
+        banner = ctk.CTkFrame(body, fg_color=PANEL, corner_radius=14,
+                              border_width=1, border_color=BORDER)
+        banner.grid(row=0, column=0, sticky="ew", pady=(0, 18))
+        banner.grid_columnconfigure(1, weight=1)
+        banner.grid_columnconfigure(2, weight=1)
+        logo = ctk.CTkFrame(banner, width=56, height=56, fg_color=ACCENT,
+                            corner_radius=14)
+        logo.grid(row=0, column=0, rowspan=2, padx=(22, 14), pady=18)
+        logo.grid_propagate(False)
+        ctk.CTkLabel(logo, text="◆", text_color="#FFFFFF",
+                     font=_font(24, "bold")).place(relx=0.5, rely=0.5,
+                                                   anchor="center")
+        self._label(banner, "卡战备自动配装", size=22, weight="bold",
+                    color=TEXT).grid(row=0, column=1, sticky="w",
+                                     pady=(18, 2))
+        self._label(banner, "三角洲行动 · 自动配装购买工具",
+                    size=13, color=DIM).grid(row=1, column=1, sticky="w",
+                                             pady=(0, 18))
+        ver_badge = ctk.CTkLabel(banner, text=f"v{__version__}",
+                                  fg_color=PANEL3, text_color=DIM,
+                                  corner_radius=8, font=_font(12, "bold"),
+                                  height=28)
+        ver_badge.grid(row=0, column=2, sticky="ne", padx=22, pady=(18, 0))
 
-        # API 文档 + Token 输入卡片
+        # 步骤三列
+        steps_row = ctk.CTkFrame(body, fg_color="transparent")
+        steps_row.grid(row=1, column=0, sticky="ew", pady=(0, 18))
+        for i in range(3):
+            steps_row.grid_columnconfigure(i, weight=1, uniform="step")
+        steps = [
+            ("1", "获取 Token", "打开 API 文档\n购买/申请权限"),
+            ("2", "填入保存", "粘贴 Token 保存\n仅存本机"),
+            ("3", "开始配装", "选档位 → 方案\n控制台运行"),
+        ]
+        self.step_cards = []
+        for i, (num, title, desc) in enumerate(steps):
+            card = ctk.CTkFrame(steps_row, fg_color=PANEL, corner_radius=14,
+                                border_width=1, border_color=BORDER)
+            card.grid(row=0, column=i, sticky="nsew",
+                      padx=(0 if i == 0 else 7, 7 if i == 2 else 0))
+            badge = ctk.CTkLabel(card, text=num, width=34, height=34,
+                                 fg_color=ACCENT, text_color="#FFFFFF",
+                                 corner_radius=17, font=_font(15, "bold"))
+            badge.grid(row=0, column=0, padx=(18, 12), pady=18)
+            self._label(card, title, size=15, weight="bold",
+                        color=TEXT).grid(row=0, column=1, sticky="w",
+                                         pady=(18, 2))
+            self._label(card, desc, size=11, color=DIM).grid(
+                row=1, column=1, sticky="w", pady=(0, 18))
+            self.step_cards.append(card)
+
+        # API Token 卡片
         token_card = ctk.CTkFrame(body, fg_color=PANEL, corner_radius=14,
                                   border_width=1, border_color=BORDER)
-        token_card.grid(row=1, column=0, sticky="ew")
+        token_card.grid(row=2, column=0, sticky="ew")
         token_card.grid_columnconfigure(0, weight=1)
         self._label(token_card, "API Token", size=17, weight="bold",
-                    color=TEXT).grid(row=0, column=0, columnspan=2,
+                    color=TEXT).grid(row=0, column=0, columnspan=3,
                                      sticky="w", padx=22, pady=(18, 6))
-        self._label(token_card, "Token 用于调用鼠鼠卡战备 V4 接口获取配装方案，"
+        self._label(token_card, "Token 用于调用配装接口获取方案，"
                     "请到 API 文档自行购买获取。",
-                    size=12, color=DIM).grid(row=1, column=0, columnspan=2,
+                    size=12, color=DIM).grid(row=1, column=0, columnspan=3,
                                              sticky="w", padx=22, pady=(0, 10))
         self.token_entry = ctk.CTkEntry(
             token_card, height=40, corner_radius=10, fg_color=PANEL2,
-            border_color=BORDER, text_color=TEXT, placeholder_text="粘贴你的 Token...",
-            font=_font(13))
+            border_color=BORDER, text_color=TEXT,
+            placeholder_text="粘贴你的 Token...", font=_font(13))
         self.token_entry.grid(row=2, column=0, sticky="ew",
-                              padx=(22, 10), pady=(0, 6))
-        btn_doc = self._button(token_card, "打开 API 文档",
-                               lambda: webbrowser.open(self.API_DOC_URL),
-                               height=40, font=_font(12, "bold"))
-        btn_doc.grid(row=2, column=1, sticky="e", padx=(0, 22), pady=(0, 6))
-        btn_save = self._button(token_card, "保存 Token",
-                                self._save_token, primary=True,
-                                height=40, font=_font(12, "bold"))
-        btn_save.grid(row=3, column=0, sticky="w", padx=22, pady=(0, 18))
+                              padx=(22, 8), pady=(0, 16))
+        ctk.CTkButton(
+            token_card, text="打开文档", width=90, height=40, corner_radius=10,
+            fg_color=PANEL2, hover_color=PANEL3, text_color=TEXT,
+            font=_font(12, "bold"),
+            command=lambda: webbrowser.open(self.API_DOC_URL)
+        ).grid(row=2, column=1, padx=(0, 8), pady=(0, 16))
+        ctk.CTkButton(
+            token_card, text="保存", width=80, height=40, corner_radius=10,
+            fg_color=ACCENT, hover_color=GRADIENT, text_color="#FFFFFF",
+            font=_font(12, "bold"), command=self._save_token
+        ).grid(row=2, column=2, padx=(0, 22), pady=(0, 16))
         self.token_status = self._label(token_card, "", size=12, color=OK)
-        self.token_status.grid(row=3, column=1, sticky="e", padx=22,
-                               pady=(0, 18))
+        self.token_status.grid(row=3, column=0, columnspan=3,
+                               sticky="w", padx=22, pady=(0, 14))
+        # 恢复已保存 token
+        if self._ui_token:
+            self.token_entry.delete(0, "end")
+            self.token_entry.insert(0, self._ui_token)
+            self.token_status.configure(text="✓ 已保存", text_color=OK)
 
         self.pages.append(page)
 
@@ -439,60 +487,8 @@ class KazhanbeiApp(ctk.CTk):
         self._save_state()
         self.token_status.configure(text="✓ 已保存", text_color=OK)
         self._append(f"[GUI] API Token 已保存（{len(token)} 位）\n", "ok")
-
-    # ---------- 设置弹窗(左下角齿轮) ----------
-    def _open_settings(self):
-        win = ctk.CTkToplevel(self)
-        win.title("设置")
-        win.geometry("380x330")
-        win.resizable(False, False)
-        win.transient(self)
-        win.grab_set()
-        win.configure(fg_color=BG)
-        win.attributes("-topmost", True)
-
-        body = ctk.CTkFrame(win, fg_color="transparent")
-        body.pack(fill="both", expand=True, padx=20, pady=18)
-
-        # 运行模式
-        self._label(body, "运行模式", size=14, weight="bold",
-                    color=TEXT).pack(anchor="w", pady=(0, 6))
-        self.mode_seg = ctk.CTkSegmentedButton(
-            body, values=[label for label, _ in MODE_MAP],
-            command=self._on_mode_picked, corner_radius=10,
-            fg_color=PANEL2, selected_color=ACCENT,
-            selected_hover_color=GRADIENT, text_color=TEXT,
-            font=_font(13, "bold"), height=36)
-        self.mode_seg.pack(fill="x", pady=(0, 4))
-        self.mode_seg.set(next(name for name, key in MODE_MAP
-                               if key == self.mode_var.get()))
-        self.mode_hint = self._label(body, "真实导航，购买前停止",
-                                     size=11, color=WARN)
-        self.mode_hint.pack(anchor="w", pady=(0, 14))
-
-        # 胸挂背包开关
-        wh = ctk.CTkFrame(body, fg_color=PANEL2, corner_radius=10,
-                          border_width=1, border_color=BORDER)
-        wh.pack(fill="x", pady=(0, 14))
-        wh.grid_columnconfigure(0, weight=1)
-        self._label(wh, "胸挂背包用仓库的", size=13, weight="bold",
-                    color=TEXT).grid(row=0, column=0, sticky="w",
-                                     padx=16, pady=14)
-        self.warehouse_switch = ctk.CTkSwitch(
-            wh, text="", variable=self.warehouse_var, width=44,
-            progress_color=ACCENT, fg_color=PANEL3,
-            button_color=TEXT, button_hover_color=DIM)
-        self.warehouse_switch.grid(row=0, column=1, padx=16)
-
-        # 说明
-        self._label(body, "提示：滚动速度、重试次数等高级参数\n"
-                    "可通过环境变量调整（见 README）",
-                    size=11, color=DIM2).pack(anchor="w", pady=(0, 10))
-
-        def on_close():
-            self._save_state()
-            win.destroy()
-        win.protocol("WM_DELETE_WINDOW", on_close)
+        # 保存成功后自动跳到下一步(战备价值)
+        self.after(500, lambda: self.show_page(1))
 
     # ---------- 第 2 页 ----------
     def _build_level_page(self):
@@ -551,7 +547,7 @@ class KazhanbeiApp(ctk.CTk):
             scrollbar_button_hover_color=ACCENT_D)
         self.plan_list.grid(row=1, column=0, sticky="nsew",
                             padx=56, pady=(8, 14))
-        self.plan_list.grid_columnconfigure((0, 1), weight=1)
+        self.plan_list.grid_columnconfigure(0, weight=1)
         pager = ctk.CTkFrame(page, fg_color="transparent")
         pager.grid(row=2, column=0, sticky="ew", padx=56, pady=(0, 34))
         pager.grid_columnconfigure(2, weight=1)
@@ -605,7 +601,7 @@ class KazhanbeiApp(ctk.CTk):
                     color=TEXT).grid(row=0, column=0, sticky="w",
                                      padx=18, pady=(16, 8))
         mode_hint_line = self._label(
-            controls, "运行模式在左下角 ⚙ 设置中调整", size=12, color=DIM2)
+            controls, "运行模式与胸挂背包设置在左侧边栏底部调整", size=12, color=DIM2)
         mode_hint_line.grid(row=1, column=0, sticky="ew",
                             padx=18, pady=(0, 12))
         actions = ctk.CTkFrame(controls, fg_color="transparent")
@@ -711,7 +707,7 @@ class KazhanbeiApp(ctk.CTk):
 
     def _render_categories(self):
         if not self.categories:
-            self._show_plan_empty("该档位暂无方案")
+            self._show_plan_empty("请先在「战备价值」页选择档位")
             return
         total = max(1, (len(self.categories) + self.plans_per_page - 1) //
                     self.plans_per_page)
@@ -768,13 +764,14 @@ class KazhanbeiApp(ctk.CTk):
             meta = (f"{len(items)} 件 · ¥{plan.get('price', 0):,}"
                     f" · 战备 {plan.get('jz', 0):,}")
             card, image_targets = self._card(
-                self.plan_list, title[:16], meta, height=320,
-                image_height=200, image_urls=main_pics[:4],
+                self.plan_list, title[:16], meta, height=230,
+                image_height=90, image_urls=main_pics[:4],
                 command=lambda selected=key: self.on_group_changed(selected))
-            card.grid(row=i // 2, column=i % 2, sticky="nsew",
+            # 单列横排: 每个方案占一整行
+            card.grid(row=i, column=0, sticky="ew",
                       padx=8, pady=8)
             self.plan_buttons.append((key, card))
-            self._load_images(image_targets, (190, 110))
+            self._load_images(image_targets, (100, 55))
             self._pulse_gear(card, delay=200 + i * 100)
         self._update_pager(start, len(page_keys), len(keys), "方案")
         self.btn_back_category.grid()
@@ -940,11 +937,13 @@ class KazhanbeiApp(ctk.CTk):
 
     def _get_image(self, url):
         if url not in self.image_cache:
-            content, err = api_client.download_bytes(url, timeout=12)
-            if err or not content:
-                raise RuntimeError(err or "empty image")
-            source = Image.open(BytesIO(content)).convert("RGBA")
-            self.image_cache[url] = source.copy()
+            with _IMG_SEM:  # 限制并发下载, 避免卡顿
+                if url not in self.image_cache:  # 双检
+                    content, err = api_client.download_bytes(url, timeout=12)
+                    if err or not content:
+                        raise RuntimeError(err or "empty image")
+                    source = Image.open(BytesIO(content)).convert("RGBA")
+                    self.image_cache[url] = source.copy()
         return self.image_cache[url]
 
     def _set_image(self, label, image):
@@ -1011,9 +1010,54 @@ class KazhanbeiApp(ctk.CTk):
             if self.proc.poll() is not None:
                 self._on_run_finished(self.proc.returncode)
                 return
-        self.after(250, self._poll_log)
+        # 运行中 250ms 轮询, 空闲降频省资源
+        self.after(250 if self.proc is not None else 800, self._poll_log)
 
     # ---------- 运行 ----------
+    def _ask_confirm(self, title, message):
+        """自定义确认框(置顶覆盖GUI, 不被游戏遮挡)。返回 True/False。"""
+        result = {"ok": False}
+        win = ctk.CTkToplevel(self)
+        win.title(title)
+        win.attributes("-topmost", True)
+        win.configure(fg_color=BG)
+        win.resizable(False, False)
+        win.protocol("WM_DELETE_WINDOW", win.destroy)
+        # 居中于主窗口
+        self.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - 460) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - 230) // 2
+        win.geometry(f"460x230+{max(0, x)}+{max(0, y)}")
+
+        body = ctk.CTkFrame(win, fg_color=BG)
+        body.pack(fill="both", expand=True, padx=24, pady=22)
+        self._label(body, "⚠ 确认真实购买", size=18, weight="bold",
+                    color=DANGER).pack(anchor="w", pady=(0, 12))
+        self._label(body, message, size=13, color=TEXT,
+                    wraplength=400, justify="left").pack(
+            anchor="w", pady=(0, 18))
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.pack(fill="x", pady=(6, 0))
+        row.grid_columnconfigure(0, weight=1)
+        ctk.CTkButton(
+            row, text="取消", width=110, height=40, corner_radius=10,
+            fg_color=PANEL2, hover_color=PANEL3, text_color=DIM,
+            font=_font(13, "bold"), command=win.destroy
+        ).grid(row=0, column=0, sticky="w")
+        ctk.CTkButton(
+            row, text="继续购买", width=140, height=40, corner_radius=10,
+            fg_color=DANGER, hover_color="#E84C4C", text_color="#FFFFFF",
+            font=_font(13, "bold"),
+            command=lambda: (result.update(ok=True), win.destroy())
+        ).grid(row=0, column=1, sticky="e")
+
+        win.transient(self)
+        win.grab_set()
+        win.lift()
+        win.focus_force()
+        win.wait_window()
+        return result["ok"]
+
     def start_run(self):
         if self.proc is not None:
             self._append("[GUI] 已有任务在运行\n", "warn")
@@ -1028,11 +1072,18 @@ class KazhanbeiApp(ctk.CTk):
         group = plan.get("_group_name", "").strip()
         plan_index = int(plan.get("_plan_position", 0))
         mode = self.mode_var.get()
-        if mode == "REAL" and not messagebox.askyesno(
-                "确认真实购买",
-                f"即将按档位 {level}、方案“{group}”执行真实购买。\n\n"
-                "此操作会消耗游戏币，是否继续？", icon="warning"):
+        # 立即反馈，避免看起来"点了没反应"
+        mode_label = {"PREVIEW": "预览", "DRY": "试跑", "REAL": "真实购买"}[mode]
+        self._append(f"[GUI] 准备启动：{mode_label} · 档位{level} · 方案「{group}」\n", "info")
+        if mode == "REAL":
+            # 真实购买提示(不阻塞, 避免被游戏遮挡卡死)
+            self._append("[GUI] ⚠ 真实购买模式：将按方案消耗游戏币购买\n", "warn")
+            self.after(1200, lambda: self._run_subprocess(
+                level, group, plan_index, mode))
             return
+        self._run_subprocess(level, group, plan_index, mode)
+
+    def _run_subprocess(self, level, group, plan_index, mode):
         env = dict(os.environ)
         env.pop("PREVIEW_MODE", None)
         env.pop("DRY_RUN_API", None)
@@ -1051,7 +1102,7 @@ class KazhanbeiApp(ctk.CTk):
         self.tail_pos = os.path.getsize(LOG_FILE) if os.path.exists(LOG_FILE) else 0
         # ⚠️ 启动前校验 TOKEN：残缺 token 会导致整轮 API 白跑，先拦下。
         if not self._token():
-            self._append("[GUI] 无法启动：API TOKEN 不完整，请检查 maa_kazhanbei.py\\n",
+            self._append("[GUI] 无法启动：API TOKEN 不完整，请检查 maa_kazhanbei.py\n",
                          "err")
             self._set_status("TOKEN 异常", DANGER)
             return
@@ -1147,16 +1198,16 @@ class KazhanbeiApp(ctk.CTk):
                 self.warehouse_var.set(True)
             if state.get("token"):
                 self._ui_token = state["token"]
-                self.token_entry.delete(0, "end")
-                self.token_entry.insert(0, state["token"])
-                self.token_status.configure(text="✓ 已保存", text_color=OK)
+                if getattr(self, "token_entry", None) is not None:
+                    self.token_entry.delete(0, "end")
+                    self.token_entry.insert(0, state["token"])
+                    self.token_status.configure(text="✓ 已保存", text_color=OK)
         except (OSError, ValueError, TypeError):
             pass
         self._paint_levels()
         self._on_mode_picked(next(name for name, key in MODE_MAP
                                   if key == self.mode_var.get()))
-        self.after(150, lambda: self._on_level_changed(self.lv_var.get(),
-                                                       advance=False))
+        # 不自动加载方案：必须先在「战备价值」页点击档位，方案页才显示内容
 
     def _save_state(self):
         try:

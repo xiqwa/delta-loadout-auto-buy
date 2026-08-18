@@ -70,7 +70,6 @@ python maa_kazhanbei.py 0
 ├── detect_wear_checkbox.py # 磨损检测
 ├── maa_win_pkg/            # MaaFramework 运行时
 ├── model/                  # OCR 模型
-└── 截图/                   # 识别效果截图
 ```
 
 ## 免责声明

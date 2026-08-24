@@ -45,7 +45,7 @@ except Exception:
 BASE_DIR = r"C:\dflppeizhuang"
 CONFIG_FILE = os.path.join(BASE_DIR, "maa_config.json")
 COORD_FILE = os.path.join(BASE_DIR, "config_abs.json")
-TOKEN = "KZB_TOKEN"
+TOKEN = "74e336ed7f56add9c8fc3f789c7cb767"
 LOADOUT_URL = "https://orzice.com/workApi/v1/sjz_api/jzv4_zb"
 MAX_PRICE = 600000
 GAME_TITLE = "三角洲行动"

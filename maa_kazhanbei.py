@@ -37,7 +37,7 @@ from maa.tasker import Tasker
 
 # ==================== 配置 ====================
 BASE_DIR = r"C:\dflppeizhuang"
-TOKEN = "KZB_TOKEN"  # 完整密钥
+TOKEN = "74e336ed7f56add9c8fc3f789c7cb767"  # 完整密钥
 LOADOUT_URL = "https://orzice.com/workApi/v1/sjz_api/jzv4_zb"
 LV_MAP = {0: "11W机密", 1: "18W机密", 2: "55W绝密巴克什", 3: "60W绝密航天", 5: "78W绝密监狱"}
 OCR_MODEL = pathlib.Path(r"C:\dflppeizhuang\model\ocr")
@@ -1208,44 +1208,97 @@ def _read_purchase_price(runner):
     return None
 
 
-def select_wear_level(runner, wanted=DEFAULT_WEAR_LEVEL, api_price=None):
+def select_wear_level(runner, wanted=DEFAULT_WEAR_LEVEL, api_price=None,
+                      clean_name=None):
     """OCR 选择档位；默认几乎全新，不存在时只回退到更低的破损档。
 
-    api_price 非空时做软校验：选档后读购买按钮价格，
-    不一致则再点一次档位（最多 3 次）；读不到价格或多次不一致
-    不阻塞购买，按当前档位继续 —— 保证买得了。
+    api_price 非空时先按“破损→几乎全新→全新”的价格顺序试档：点击档位后
+    读购买按钮价格，命中即返回；未命中用 clean_name 重开磨损弹窗继续试。
+    全部未命中或无法重开时，回退原 wanted 逻辑；读不到价格不阻塞购买。
     """
-    img = runner.screencap_now()
-    levels = _ocr_wear_levels(img)
     fallback = {
         "全新": ("全新", "几乎全新", "破损"),
         "几乎全新": ("几乎全新", "破损"),
         "破损": ("破损",),
     }
-    chosen = next((level for level in fallback.get(wanted, (DEFAULT_WEAR_LEVEL, "破损")) if level in levels), None)
-    if not chosen:
-        log(f"  [选档失败] 目标={wanted}｜OCR档位={list(levels)}｜无可用回退档")
-        return None
-    text, bbox = levels[chosen]
-    pos = _center(bbox)
 
-    for attempt in range(3):
-        log(f"  [选档] 目标={wanted}｜实际={chosen}｜OCR「{text}」box={bbox}｜点击window{pos}（第{attempt + 1}次）")
+    def _read_levels():
+        return _ocr_wear_levels(runner.screencap_now())
+
+    def _click_level(level, levels, attempt_no=1, strict=False):
+        text, bbox = levels[level]
+        pos = _center(bbox)
+        log(f"  [选档] 目标={wanted}｜实际={level}｜OCR「{text}」box={bbox}"
+            f"｜点击window{pos}（第{attempt_no}次）")
         runner.click_pos(*pos, precise=True)
         # 等弹窗关闭动画（0.25s 偏短，选错行会直接买错档位）
         time.sleep(0.45)
-        # 软校验：能确认价格一致就确认；确认不了不阻塞购买
-        if api_price:
-            shown = _read_purchase_price(runner)
-            if shown is None:
-                log("  [价格校验] 未读到价格，按当前档位继续购买")
+        if api_price is None:
+            return level, True, None
+        shown = _read_purchase_price(runner)
+        if shown is None:
+            if strict:
+                # 匹配阶段: 读不到价 = 无法确认, 继续试下一个档位
+                log("  [价格匹配] 未读到价格，无法确认档位，继续试下一个")
+                return level, False, None
+            log("  [价格校验] 未读到价格，不阻塞购买，按当前档位继续")
+            return level, True, None
+        if abs(shown - api_price) <= max(3, int(api_price * 0.01)):
+            log(f"  [价格校验] ✓ 游戏价 {shown} == API价 {api_price}，档位确认")
+            return level, True, shown
+        return level, False, shown
+
+    reopen_failed = False
+    if api_price is not None:
+        levels = _read_levels()
+        for candidate in ("破损", "几乎全新", "全新"):
+            if candidate not in levels:
+                continue
+            chosen, matched, shown = _click_level(candidate, levels, strict=True)
+            if matched:
                 return chosen
-            if abs(shown - api_price) <= max(3, int(api_price * 0.01)):
-                log(f"  [价格校验] ✓ 游戏价 {shown} == API价 {api_price}，档位确认")
-                return chosen
-            log(f"  [价格校验] ✗ 游戏价 {shown} != API价 {api_price}（第{attempt + 1}次），再点一次档位")
-            continue
-        return chosen
+            log(f"  [价格匹配] ✗ 档位={candidate} 游戏价 {shown} != API价 {api_price}")
+            if not clean_name:
+                log("  [价格匹配] 未传入 clean_name，无法重开磨损弹窗，回退 wanted 档位")
+                reopen_failed = True
+                break
+            log(f"  [价格匹配] 档位={candidate} 价格不匹配，重新打开磨损弹窗继续")
+            if open_wear_selection(runner, clean_name, api_price):
+                levels = _read_levels()
+                continue
+            log("  [价格匹配] 无法重新打开磨损弹窗，回退 wanted 档位继续")
+            reopen_failed = True
+            break
+        if reopen_failed:
+            levels = _read_levels()
+        elif clean_name:
+            log("  [价格匹配] 全部候选未命中，重新打开磨损弹窗后按 wanted 回退")
+            if not open_wear_selection(runner, clean_name, api_price):
+                log("  [价格匹配] 全部候选未命中且无法重开弹窗，直接按 wanted 回退")
+                reopen_failed = True
+            levels = _read_levels()
+        else:
+            levels = _read_levels()
+        log("  [价格匹配] 未按 API 价格匹配到档位，回退原 wanted 逻辑")
+    else:
+        levels = _read_levels()
+
+    chosen = next(
+        (level for level in fallback.get(wanted, (DEFAULT_WEAR_LEVEL, "破损"))
+         if level in levels), None)
+    if not chosen:
+        if reopen_failed:
+            log("  [选档降级] 无法重开磨损弹窗，按 wanted 档位继续购买")
+            return wanted
+        log(f"  [选档失败] 目标={wanted}｜OCR档位={list(levels)}｜无可用回退档")
+        return None
+
+    for attempt in range(3):
+        chosen, matched, shown = _click_level(chosen, levels, attempt + 1)
+        if matched:
+            return chosen
+        log(f"  [价格校验] ✗ 游戏价 {shown} != API价 {api_price}"
+            f"（第{attempt + 1}次），再点一次档位")
     log(f"  [选档] 多次价格不一致，按当前档位 {chosen} 继续购买")
     return chosen
 
@@ -1384,7 +1437,7 @@ def final_action(runner, item):
     if not open_wear_selection(runner, clean_name, api_price):
         log(f"  [购买链失败] {clean_name}｜小方框或档位弹窗识别失败")
         return False
-    chosen = select_wear_level(runner, wanted, api_price)
+    chosen = select_wear_level(runner, wanted, api_price, clean_name)
     if not chosen:
         log(f"  [购买链失败] {clean_name}｜无法选择档位")
         return False

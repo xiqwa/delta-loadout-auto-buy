@@ -374,7 +374,7 @@ class KazhanbeiApp(ctk.CTk):
                          text_color=TEXT if active else DIM)
 
     # ---------- 第 1 页：开始 ----------
-    API_DOC_URL = "https://orzice.com/v/zb_ssV4"
+    API_DOC_URL = "https://orzice.com/work/"
 
     def _build_start_page(self):
         page = ctk.CTkFrame(self, fg_color=BG, corner_radius=0)
